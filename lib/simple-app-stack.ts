@@ -6,6 +6,9 @@ import { Runtime } from '@aws-cdk/aws-lambda';
 import * as path from 'path';
 import { BucketDeployment, Source } from '@aws-cdk/aws-s3-deployment';
 import { PolicyStatement } from '@aws-cdk/aws-iam';
+import { HttpApi, HttpMethod } from '@aws-cdk/aws-apigatewayv2';
+import { LambdaProxyIntegration } from '@aws-cdk/aws-apigatewayv2-integrations';
+import { CloudFrontWebDistribution } from '@aws-cdk/aws-cloudfront';
 
 export class SimpleAppStack extends cdk.Stack {
   constructor(scope: cdk.Construct, id: string, props?: cdk.StackProps) {
@@ -21,6 +24,33 @@ export class SimpleAppStack extends cdk.Stack {
       sources: [Source.asset(path.join(__dirname, '..', 'photos'))],
       destinationBucket: bucket,
     });
+
+    const webSiteBucket = new Bucket(this, 'MySimpleAppWebSiteBucket', {
+      removalPolicy: RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+      websiteIndexDocument: 'index.html',
+      publicReadAccess: true,
+    });
+
+    new BucketDeployment(this, 'MySimpleAppWebSiteDeploy', {
+      sources: [Source.asset(path.join(__dirname, '..', 'frontend', 'build'))],
+      destinationBucket: webSiteBucket,
+    });
+
+    const cloudFront = new CloudFrontWebDistribution(
+      this,
+      'MySimpleAppDistribution',
+      {
+        originConfigs: [
+          {
+            s3OriginSource: {
+              s3BucketSource: webSiteBucket,
+            },
+            behaviors: [{ isDefaultBehavior: true }],
+          },
+        ],
+      }
+    );
 
     const getPhotos = new lambda.NodejsFunction(this, 'MySimpleAppLambda', {
       runtime: Runtime.NODEJS_12_X,
@@ -42,9 +72,44 @@ export class SimpleAppStack extends cdk.Stack {
     getPhotos.addToRolePolicy(bucketContainerPermissions);
     getPhotos.addToRolePolicy(bucketPermissions);
 
+    // API Gateway
+    const httpApi = new HttpApi(this, 'MySimpleAppHttpApi', {
+      corsPreflight: {
+        allowOrigins: ['*'],
+        allowMethods: [HttpMethod.GET],
+      },
+      apiName: 'photo-api',
+      createDefaultStage: true,
+    });
+
+    const lambdaIntegration = new LambdaProxyIntegration({
+      handler: getPhotos,
+    });
+
+    httpApi.addRoutes({
+      path: '/getAllPhotos',
+      methods: [HttpMethod.GET],
+      integration: lambdaIntegration,
+    });
+
     new cdk.CfnOutput(this, 'MySimpleAppBucketNameExport', {
       value: bucket.bucketName,
       exportName: 'MySimpleAppBucketName',
+    });
+
+    new cdk.CfnOutput(this, 'MySimpleAppApi', {
+      value: httpApi.url!,
+      exportName: 'MySimpleAppApiEndPoint',
+    });
+
+    new cdk.CfnOutput(this, 'MySimpleAppWebSiteBucketNameExport', {
+      value: webSiteBucket.bucketName,
+      exportName: 'MySimpleAppWebSiteBucketName',
+    });
+
+    new cdk.CfnOutput(this, 'MySimpleAppWebSiteURL', {
+      value: cloudFront.distributionDomainName,
+      exportName: 'MySimpleAppURL',
     });
   }
 }
