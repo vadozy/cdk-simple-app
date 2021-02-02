@@ -32,11 +32,6 @@ export class SimpleAppStack extends cdk.Stack {
       publicReadAccess: true,
     });
 
-    new BucketDeployment(this, 'MySimpleAppWebSiteDeploy', {
-      sources: [Source.asset(path.join(__dirname, '..', 'frontend', 'build'))],
-      destinationBucket: webSiteBucket,
-    });
-
     const cloudFront = new CloudFrontWebDistribution(
       this,
       'MySimpleAppDistribution',
@@ -51,6 +46,12 @@ export class SimpleAppStack extends cdk.Stack {
         ],
       }
     );
+
+    new BucketDeployment(this, 'MySimpleAppWebSiteDeploy', {
+      sources: [Source.asset(path.join(__dirname, '..', 'frontend', 'build'))],
+      destinationBucket: webSiteBucket,
+      distribution: cloudFront, // so that cloudFront cleans its cache when redeploying
+    });
 
     const getPhotos = new lambda.NodejsFunction(this, 'MySimpleAppLambda', {
       runtime: Runtime.NODEJS_12_X,
